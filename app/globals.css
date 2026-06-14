@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Calm, reassuring palette — soft warm paper + gentle teal */
+    --background: 200 30% 98%;
+    --foreground: 215 28% 22%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 215 28% 22%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 28% 22%;
+
+    --primary: 177 58% 40%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 200 33% 94%;
+    --secondary-foreground: 215 25% 30%;
+
+    --muted: 205 30% 95%;
+    --muted-foreground: 215 16% 50%;
+
+    --accent: 168 45% 92%;
+    --accent-foreground: 178 52% 28%;
+
+    --destructive: 5 72% 56%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 205 25% 88%;
+    --input: 205 25% 88%;
+    --ring: 177 58% 40%;
+
+    --radius: 1rem;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-feature-settings: "kern";
+    -webkit-font-smoothing: antialiased;
+    background-image:
+      radial-gradient(at 0% 0%, hsl(178 52% 42% / 0.05) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, hsl(200 60% 70% / 0.07) 0px, transparent 50%);
+    background-attachment: fixed;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 9999px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
