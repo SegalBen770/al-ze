@@ -188,7 +188,7 @@ function CustomerDetail({ customerId }: { customerId: Id<"customers"> }) {
       toast.success(
         res.linkedExisting
           ? "המשתמש הקיים שויך ללקוח"
-          : "ההזמנה נשלחה ✨",
+          : "החשבון נוצר והסיסמה נשלחה במייל ✨",
       );
       setEmail("");
     } catch (err) {
@@ -209,7 +209,7 @@ function CustomerDetail({ customerId }: { customerId: Id<"customers"> }) {
           הזמנת משתמש
         </h3>
         <p className="text-sm text-muted-foreground mb-4">
-          הזן מייל — אשלח הזמנה, והמשתמש ישויך אוטומטית בכניסה הראשונה.
+          הזן מייל — תיווצר סיסמה חזקה אוטומטית ותישלח אליו במייל יחד עם קישור כניסה.
         </p>
         <form onSubmit={invite} className="flex gap-2">
           <Input

@@ -1,15 +1,16 @@
 import { v } from "convex/values";
 import {
   internalAction,
-  internalQuery,
+  internalMutation,
   mutation,
   query,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { createAccount } from "@convex-dev/auth/server";
 import { requireAdmin } from "./lib/authz";
 import { userRole } from "./schema";
 
-/** יוצר הזמנה למשתמש חדש (אדמין בלבד) ושולח מייל אם מוגדר Resend. */
+/** יוצר הזמנה: מקים חשבון עם סיסמה חזקה ושולח אותה במייל (אדמין בלבד). */
 export const create = mutation({
   args: {
     email: v.string(),
@@ -24,7 +25,7 @@ export const create = mutation({
     const customer = await ctx.db.get(customerId);
     if (!customer) throw new Error("הלקוח לא נמצא");
 
-    // אם כבר קיים משתמש עם המייל — לקשר אותו ישירות במקום הזמנה.
+    // אם כבר קיים משתמש עם המייל — רק לשייך אותו ללקוח (בלי סיסמה חדשה).
     const existingUser = await ctx.db
       .query("users")
       .withIndex("email", (q) => q.eq("email", normalized))
@@ -54,8 +55,10 @@ export const create = mutation({
       createdAt: Date.now(),
     });
 
-    await ctx.scheduler.runAfter(0, internal.invites.sendInviteEmail, {
+    await ctx.scheduler.runAfter(0, internal.invites.provisionUser, {
       email: normalized,
+      customerId,
+      role: role ?? "client",
       customerName: customer.name,
     });
 
@@ -83,55 +86,115 @@ export const revoke = mutation({
   },
 });
 
-/** שולף את כתובת האתר עבור פעולת המייל. */
-export const getSiteUrl = internalQuery({
-  args: {},
-  handler: async () => process.env.SITE_URL ?? "http://localhost:3000",
+/** מקים חשבון Password עם סיסמה אקראית, משייך ללקוח, ושולח את הסיסמה במייל. */
+export const provisionUser = internalAction({
+  args: {
+    email: v.string(),
+    customerId: v.id("customers"),
+    role: userRole,
+    customerName: v.string(),
+  },
+  handler: async (ctx, { email, customerId, role, customerName }) => {
+    const password = generatePassword();
+    try {
+      await createAccount(ctx, {
+        provider: "password",
+        account: { id: email, secret: password },
+        profile: { email },
+        shouldLinkViaEmail: true,
+      });
+    } catch (e) {
+      console.error("[provision] יצירת החשבון נכשלה:", e);
+      return; // לא נשלח סיסמה שלא תעבוד
+    }
+    await ctx.runMutation(internal.invites.linkUser, { email, customerId, role });
+    await sendCredentialsEmail(email, password, customerName);
+  },
 });
 
-/**
- * שולח מייל הזמנה דרך Resend אם מוגדר AUTH_RESEND_KEY.
- * אם אין מפתח — מדלג בשקט (ההזמנה עדיין נשמרה והקישור האוטומטי יעבוד).
- */
-export const sendInviteEmail = internalAction({
-  args: { email: v.string(), customerName: v.string() },
-  handler: async (ctx, { email, customerName }) => {
-    const key = process.env.AUTH_RESEND_KEY;
-    if (!key) {
-      console.log(`[invite] אין AUTH_RESEND_KEY — דילגתי על שליחת מייל ל-${email}`);
-      return;
-    }
-    const siteUrl: string = await ctx.runQuery(internal.invites.getSiteUrl, {});
-    const from = process.env.AUTH_EMAIL ?? "על זה <onboarding@resend.dev>";
-    const loginUrl = `${siteUrl}/login?email=${encodeURIComponent(email)}`;
+/** משייך משתמש ללקוח עם תפקיד, ומסמן את ההזמנה כמקובלת. */
+export const linkUser = internalMutation({
+  args: {
+    email: v.string(),
+    customerId: v.id("customers"),
+    role: userRole,
+  },
+  handler: async (ctx, { email, customerId, role }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", email))
+      .first();
+    if (user) await ctx.db.patch(user._id, { customerId, role });
 
-    const html = `
-      <div dir="rtl" style="font-family:system-ui,Arial,sans-serif;max-width:520px;margin:auto;padding:24px;color:#1e293b">
-        <h2 style="color:#0d9488">הוזמנת ל״על זה״ ✅</h2>
-        <p>שלום,</p>
-        <p>הוזמנת להצטרף למערכת הטיקטים <b>״על זה״</b> של <b>${customerName}</b>.</p>
-        <p>מהרגע שתפתח פנייה — אני על זה. כדי להתחבר, היכנס לקישור והזדהה עם המייל הזה (סיסמה או קישור קסם):</p>
-        <p style="margin:24px 0">
-          <a href="${loginUrl}" style="background:#0d9488;color:#fff;padding:12px 28px;border-radius:12px;text-decoration:none;font-weight:600">כניסה למערכת</a>
-        </p>
-        <p style="color:#64748b;font-size:13px">אם לא ציפית להזמנה זו, אפשר להתעלם מהמייל.</p>
-      </div>`;
-
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from,
-        to: email,
-        subject: `הוזמנת ל״על זה״ — מערכת התמיכה של ${customerName}`,
-        html,
-      }),
-    });
-    if (!res.ok) {
-      console.error(`[invite] שליחת מייל נכשלה: ${res.status} ${await res.text()}`);
+    const invite = await ctx.db
+      .query("invites")
+      .withIndex("by_email", (q) => q.eq("email", email))
+      .filter((q) => q.eq(q.field("status"), "pending"))
+      .first();
+    if (invite) {
+      await ctx.db.patch(invite._id, {
+        status: "accepted",
+        acceptedAt: Date.now(),
+      });
     }
   },
 });
+
+/* ------------------------------- עזרים ------------------------------- */
+
+function generatePassword(length = 14): string {
+  // ללא תווים מבלבלים (0/O, 1/l) לקריאוּת.
+  const chars =
+    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%*";
+  const bytes = new Uint32Array(length);
+  crypto.getRandomValues(bytes);
+  let out = "";
+  for (let i = 0; i < length; i++) out += chars[bytes[i] % chars.length];
+  return out;
+}
+
+async function sendCredentialsEmail(
+  email: string,
+  password: string,
+  customerName: string,
+): Promise<void> {
+  const key = process.env.AUTH_RESEND_KEY;
+  if (!key) {
+    console.log(`[provision] אין AUTH_RESEND_KEY — לא נשלחה סיסמה ל-${email}`);
+    return;
+  }
+  const siteUrl = (process.env.SITE_URL ?? "http://localhost:3000").replace(
+    /\/$/,
+    "",
+  );
+  const from = process.env.AUTH_EMAIL ?? "על זה <onboarding@resend.dev>";
+  const loginUrl = `${siteUrl}/login?email=${encodeURIComponent(email)}`;
+
+  const html = `
+    <div dir="rtl" style="font-family:system-ui,Arial,sans-serif;max-width:520px;margin:auto;padding:24px;color:#1e293b">
+      <h2 style="color:#0d9488;margin:0 0 12px">ברוך הבא ל״על זה״ ✅</h2>
+      <p>נפתח עבורך חשבון במערכת התמיכה של <b>${customerName}</b>. אלה פרטי הכניסה שלך:</p>
+      <div style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:12px;padding:16px;margin:16px 0;font-size:15px">
+        <div style="margin-bottom:8px">אימייל: <b dir="ltr" style="display:inline-block">${email}</b></div>
+        <div>סיסמה: <b dir="ltr" style="display:inline-block;font-family:monospace;font-size:16px;letter-spacing:1px">${password}</b></div>
+      </div>
+      <p style="margin:24px 0">
+        <a href="${loginUrl}" style="background:#0d9488;color:#fff;padding:12px 28px;border-radius:12px;text-decoration:none;font-weight:600;display:inline-block">כניסה למערכת</a>
+      </p>
+      <p style="color:#94a3b8;font-size:12px">מומלץ לשמור את הסיסמה במקום בטוח. ברגע שתתחבר, המערכת תזכור אותך לאורך זמן.</p>
+    </div>`;
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      from,
+      to: email,
+      subject: `פרטי הכניסה שלך ל״על זה״ — ${customerName}`,
+      html,
+    }),
+  });
+  if (!res.ok) {
+    console.error(`[provision] שליחת המייל נכשלה: ${res.status} ${await res.text()}`);
+  }
+}
