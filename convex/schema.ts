@@ -37,6 +37,8 @@ const schema = defineSchema({
     phoneVerificationTime: v.optional(v.number()),
     isAnonymous: v.optional(v.boolean()),
     // שדות שלנו:
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
     role: v.optional(userRole),
     customerId: v.optional(v.id("customers")),
   })
@@ -55,6 +57,8 @@ const schema = defineSchema({
   // הזמנות משתמשים (Invite בלבד — אין הרשמה חופשית).
   invites: defineTable({
     email: v.string(),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
     customerId: v.id("customers"),
     role: userRole,
     status: inviteStatus,

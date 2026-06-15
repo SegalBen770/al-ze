@@ -1,5 +1,5 @@
 import { query } from "./_generated/server";
-import { getCurrentUser } from "./lib/authz";
+import { getCurrentUser, userDisplayName } from "./lib/authz";
 
 /** המשתמש המחובר + מצב גישה. מחזיר null אם לא מחובר. */
 export const current = query({
@@ -14,6 +14,9 @@ export const current = query({
     return {
       _id: user._id,
       name: user.name ?? null,
+      firstName: user.firstName ?? null,
+      lastName: user.lastName ?? null,
+      displayName: userDisplayName(user),
       email: user.email ?? null,
       role: user.role ?? null,
       isAdmin: user.role === "admin",

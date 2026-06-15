@@ -4,6 +4,17 @@ import { QueryCtx } from "../_generated/server";
 
 export type AppUser = Doc<"users">;
 
+/** שם לתצוגה: שם מלא אם קיים, אחרת name/מייל. */
+export function userDisplayName(u: {
+  firstName?: string;
+  lastName?: string;
+  name?: string;
+  email?: string;
+}): string {
+  const full = [u.firstName, u.lastName].filter(Boolean).join(" ").trim();
+  return full || u.name || u.email || "משתמש";
+}
+
 /** מחזיר את המשתמש המחובר, או null אם לא מחובר. */
 export async function getCurrentUser(ctx: QueryCtx): Promise<AppUser | null> {
   const userId = await getAuthUserId(ctx);

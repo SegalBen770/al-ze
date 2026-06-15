@@ -14,13 +14,18 @@ import { userRole } from "./schema";
 export const create = mutation({
   args: {
     email: v.string(),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
     customerId: v.id("customers"),
     role: v.optional(userRole),
   },
-  handler: async (ctx, { email, customerId, role }) => {
+  handler: async (ctx, { email, firstName, lastName, customerId, role }) => {
     const admin = await requireAdmin(ctx);
     const normalized = email.trim().toLowerCase();
     if (!normalized.includes("@")) throw new Error("כתובת מייל לא תקינה");
+    const fn = firstName?.trim() || undefined;
+    const ln = lastName?.trim() || undefined;
+    const fullName = [fn, ln].filter(Boolean).join(" ") || undefined;
 
     const customer = await ctx.db.get(customerId);
     if (!customer) throw new Error("הלקוח לא נמצא");
@@ -34,6 +39,9 @@ export const create = mutation({
       await ctx.db.patch(existingUser._id, {
         customerId,
         role: role ?? "client",
+        ...(fn ? { firstName: fn } : {}),
+        ...(ln ? { lastName: ln } : {}),
+        ...(fullName ? { name: fullName } : {}),
       });
       return { linkedExisting: true };
     }
@@ -48,6 +56,8 @@ export const create = mutation({
 
     await ctx.db.insert("invites", {
       email: normalized,
+      firstName: fn,
+      lastName: ln,
       customerId,
       role: role ?? "client",
       status: "pending",
@@ -57,6 +67,8 @@ export const create = mutation({
 
     await ctx.scheduler.runAfter(0, internal.invites.provisionUser, {
       email: normalized,
+      firstName: fn,
+      lastName: ln,
       customerId,
       role: role ?? "client",
       customerName: customer.name,
@@ -90,11 +102,13 @@ export const revoke = mutation({
 export const provisionUser = internalAction({
   args: {
     email: v.string(),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
     customerId: v.id("customers"),
     role: userRole,
     customerName: v.string(),
   },
-  handler: async (ctx, { email, customerId, role, customerName }) => {
+  handler: async (ctx, { email, firstName, lastName, customerId, role, customerName }) => {
     const password = generatePassword();
     try {
       await createAccount(ctx, {
@@ -107,8 +121,14 @@ export const provisionUser = internalAction({
       console.error("[provision] יצירת החשבון נכשלה:", e);
       return; // לא נשלח סיסמה שלא תעבוד
     }
-    await ctx.runMutation(internal.invites.linkUser, { email, customerId, role });
-    await sendCredentialsEmail(email, password, customerName);
+    await ctx.runMutation(internal.invites.linkUser, {
+      email,
+      firstName,
+      lastName,
+      customerId,
+      role,
+    });
+    await sendCredentialsEmail(email, password, customerName, firstName);
   },
 });
 
@@ -116,15 +136,26 @@ export const provisionUser = internalAction({
 export const linkUser = internalMutation({
   args: {
     email: v.string(),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
     customerId: v.id("customers"),
     role: userRole,
   },
-  handler: async (ctx, { email, customerId, role }) => {
+  handler: async (ctx, { email, firstName, lastName, customerId, role }) => {
     const user = await ctx.db
       .query("users")
       .withIndex("email", (q) => q.eq("email", email))
       .first();
-    if (user) await ctx.db.patch(user._id, { customerId, role });
+    if (user) {
+      const fullName = [firstName, lastName].filter(Boolean).join(" ") || undefined;
+      await ctx.db.patch(user._id, {
+        customerId,
+        role,
+        ...(firstName ? { firstName } : {}),
+        ...(lastName ? { lastName } : {}),
+        ...(fullName ? { name: fullName } : {}),
+      });
+    }
 
     const invite = await ctx.db
       .query("invites")
@@ -157,6 +188,7 @@ async function sendCredentialsEmail(
   email: string,
   password: string,
   customerName: string,
+  firstName?: string,
 ): Promise<void> {
   const key = process.env.AUTH_RESEND_KEY;
   if (!key) {
@@ -172,7 +204,7 @@ async function sendCredentialsEmail(
 
   const html = `
     <div dir="rtl" style="font-family:system-ui,Arial,sans-serif;max-width:520px;margin:auto;padding:24px;color:#1e293b">
-      <h2 style="color:#0d9488;margin:0 0 12px">ברוך הבא ל״על זה״ ✅</h2>
+      <h2 style="color:#0d9488;margin:0 0 12px">${firstName ? `שלום ${firstName}, ` : ""}ברוך הבא ל״על זה״ ✅</h2>
       <p>נפתח עבורך חשבון במערכת התמיכה של <b>${customerName}</b>. אלה פרטי הכניסה שלך:</p>
       <div style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:12px;padding:16px;margin:16px 0;font-size:15px">
         <div style="margin-bottom:8px">אימייל: <b dir="ltr" style="display:inline-block">${email}</b></div>

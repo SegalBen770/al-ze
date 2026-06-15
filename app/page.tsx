@@ -71,6 +71,11 @@ function Dashboard() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
+          {me && (
+            <p className="text-sm font-medium text-primary mb-0.5">
+              שלום {me.firstName ?? me.displayName} 👋
+            </p>
+          )}
           <h1 className="text-2xl font-bold">
             {me?.isAdmin ? "כל הטיקטים" : "הטיקטים שלך"}
           </h1>

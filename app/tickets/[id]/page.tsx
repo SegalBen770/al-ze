@@ -12,6 +12,7 @@ import {
   Hourglass,
   Send,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
@@ -230,6 +231,8 @@ function AdminControls({
   const taxonomy = useQuery(api.taxonomy.list);
   const changeStatus = useMutation(api.tickets.changeStatus);
   const setEta = useMutation(api.tickets.setEta);
+  const removeTicket = useMutation(api.tickets.remove);
+  const router = useRouter();
 
   const etaValue = ticket.etaAt
     ? new Date(ticket.etaAt).toISOString().slice(0, 10)
@@ -283,6 +286,29 @@ function AdminControls({
             }
           }}
         />
+      </div>
+
+      <div className="pt-3 border-t border-border/60">
+        <Button
+          variant="ghost"
+          className="w-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+          onClick={async () => {
+            if (
+              !confirm("למחוק את הטיקט לצמיתות? כל ההיסטוריה והתמונות יימחקו.")
+            )
+              return;
+            try {
+              await removeTicket({ ticketId });
+              toast.success("הטיקט נמחק");
+              router.push("/");
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : "המחיקה נכשלה");
+            }
+          }}
+        >
+          <Trash2 className="size-4" />
+          מחיקת הטיקט
+        </Button>
       </div>
     </Card>
   );

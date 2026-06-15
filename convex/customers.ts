@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { requireAdmin, requireUser } from "./lib/authz";
+import { requireAdmin, requireUser, userDisplayName } from "./lib/authz";
 
 /** רשימת כל הלקוחות עם מספר המשתמשים בכל אחד (אדמין בלבד). */
 export const list = query({
@@ -77,9 +77,63 @@ export const usersForCustomer = query({
       .collect();
     return users.map((u) => ({
       _id: u._id,
-      name: u.name,
+      firstName: u.firstName ?? null,
+      lastName: u.lastName ?? null,
+      displayName: userDisplayName(u),
       email: u.email,
       role: u.role,
     }));
+  },
+});
+
+/** עריכת פרטי משתמש (שם פרטי / משפחה) — אדמין בלבד. */
+export const updateUser = mutation({
+  args: {
+    userId: v.id("users"),
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
+  },
+  handler: async (ctx, { userId, firstName, lastName }) => {
+    await requireAdmin(ctx);
+    const fn = firstName?.trim() || undefined;
+    const ln = lastName?.trim() || undefined;
+    const fullName = [fn, ln].filter(Boolean).join(" ") || undefined;
+    await ctx.db.patch(userId, {
+      firstName: fn,
+      lastName: ln,
+      ...(fullName ? { name: fullName } : {}),
+    });
+  },
+});
+
+/** מחיקת משתמש — כולל חשבונות הזדהות וסשנים (אדמין בלבד). */
+export const deleteUser = mutation({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => {
+    const admin = await requireAdmin(ctx);
+    if (admin._id === userId) throw new Error("אי אפשר למחוק את עצמך");
+
+    // מחיקת חשבונות ההזדהות של המשתמש.
+    const accounts = await ctx.db
+      .query("authAccounts")
+      .withIndex("userIdAndProvider", (q) => q.eq("userId", userId))
+      .collect();
+    for (const a of accounts) await ctx.db.delete(a._id);
+
+    // מחיקת הסשנים והטוקנים.
+    const sessions = await ctx.db
+      .query("authSessions")
+      .withIndex("userId", (q) => q.eq("userId", userId))
+      .collect();
+    for (const s of sessions) {
+      const tokens = await ctx.db
+        .query("authRefreshTokens")
+        .withIndex("sessionId", (q) => q.eq("sessionId", s._id))
+        .collect();
+      for (const t of tokens) await ctx.db.delete(t._id);
+      await ctx.db.delete(s._id);
+    }
+
+    await ctx.db.delete(userId);
   },
 });

@@ -119,9 +119,7 @@ function Header({ me }: { me: Me }) {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuLabel>
-                {me.name ?? me.email ?? "משתמש"}
-              </DropdownMenuLabel>
+              <DropdownMenuLabel>{me.displayName}</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={async () => {

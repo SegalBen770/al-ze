@@ -6,6 +6,7 @@ import {
   requireAdmin,
   requireTicketAccess,
   requireUser,
+  userDisplayName,
 } from "./lib/authz";
 
 /** תאריך קצר לתצוגה במייל (DD.MM.YYYY). */
@@ -114,7 +115,7 @@ export const list = query({
     const creatorIds = [...new Set(tickets.map((t) => t.createdBy))];
     const creators = await Promise.all(creatorIds.map((id) => ctx.db.get(id)));
     const creatorMap = new Map(
-      creators.filter(Boolean).map((u) => [u!._id, u!.name ?? u!.email ?? "משתמש"]),
+      creators.filter(Boolean).map((u) => [u!._id, userDisplayName(u!)]),
     );
 
     return tickets.map((t) =>
@@ -143,7 +144,7 @@ export const getWithMetrics = query({
     const authorIds = [...new Set(events.map((e) => e.authorId))];
     const authors = await Promise.all(authorIds.map((id) => ctx.db.get(id)));
     const authorMap = new Map(
-      authors.filter(Boolean).map((u) => [u!._id, u!.name ?? u!.email ?? "משתמש"]),
+      authors.filter(Boolean).map((u) => [u!._id, userDisplayName(u!)]),
     );
 
     // כתובות לכל הקבצים המצורפים בטיים-ליין.
@@ -171,7 +172,7 @@ export const getWithMetrics = query({
         ticket,
         maps,
         customer?.name,
-        creator?.name ?? creator?.email ?? undefined,
+        creator ? userDisplayName(creator) : undefined,
       ),
       timeline,
       metrics,
@@ -250,7 +251,7 @@ export const create = mutation({
         kind: "new_ticket",
         ticketId,
         ticketTitle: args.title.trim(),
-        actorName: user.name ?? user.email ?? "משתמש",
+        actorName: userDisplayName(user),
       });
     }
 
@@ -282,7 +283,7 @@ export const addComment = mutation({
     await ctx.db.patch(ticketId, { updatedAt: now });
 
     // התראות מייל על תגובה חדשה.
-    const actorName = user.name ?? user.email ?? "משתמש";
+    const actorName = userDisplayName(user);
     const snippet = trimmed.slice(0, 200);
     if (user.role === "admin") {
       // המנהל הגיב → פותח הטיקט מקבל מייל (אם אינו המנהל עצמו).
@@ -356,7 +357,7 @@ export const changeStatus = mutation({
         kind: "status",
         ticketId,
         ticketTitle: ticket.title,
-        actorName: admin.name ?? admin.email ?? "הצוות",
+        actorName: userDisplayName(admin),
         body: newStatus.name,
       });
     }
@@ -388,7 +389,7 @@ export const setEta = mutation({
         kind: "eta",
         ticketId,
         ticketTitle: ticket.title,
-        actorName: admin.name ?? admin.email ?? "הצוות",
+        actorName: userDisplayName(admin),
         body: etaAt
           ? `נקבע צפי לסיום: ${shortDate(etaAt)}`
           : "הצפי לסיום הוסר.",
@@ -413,5 +414,36 @@ export const update = mutation({
     );
     patch.updatedAt = Date.now();
     await ctx.db.patch(ticketId, patch as Partial<Doc<"tickets">>);
+  },
+});
+
+/** מחיקת טיקט — כולל כל האירועים והקבצים המצורפים (אדמין בלבד). */
+export const remove = mutation({
+  args: { ticketId: v.id("tickets") },
+  handler: async (ctx, { ticketId }) => {
+    await requireAdmin(ctx);
+    const ticket = await ctx.db.get(ticketId);
+    if (!ticket) return;
+
+    const events = await ctx.db
+      .query("ticketEvents")
+      .withIndex("by_ticket", (q) => q.eq("ticketId", ticketId))
+      .collect();
+
+    // מחיקת קבצים מאוחסנים.
+    const storageIds = new Set<Id<"_storage">>([
+      ...ticket.attachmentIds,
+      ...events.flatMap((e) => e.attachmentIds),
+    ]);
+    for (const id of storageIds) {
+      try {
+        await ctx.storage.delete(id);
+      } catch {
+        // קובץ שכבר נמחק — מתעלמים.
+      }
+    }
+
+    for (const e of events) await ctx.db.delete(e._id);
+    await ctx.db.delete(ticketId);
   },
 });
