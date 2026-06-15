@@ -1,11 +1,18 @@
 import { v } from "convex/values";
 import { mutation, query, QueryCtx } from "./_generated/server";
 import { Doc, Id } from "./_generated/dataModel";
+import { internal } from "./_generated/api";
 import {
   requireAdmin,
   requireTicketAccess,
   requireUser,
 } from "./lib/authz";
+
+/** תאריך קצר לתצוגה במייל (DD.MM.YYYY). */
+function shortDate(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getUTCDate()}.${d.getUTCMonth() + 1}.${d.getUTCFullYear()}`;
+}
 
 /* ----------------------------- עזרי העשרה ----------------------------- */
 
@@ -236,6 +243,17 @@ export const create = mutation({
       createdAt: now,
     });
 
+    // טיקט שנפתח ע"י לקוח (לא המנהל) → המנהל מקבל התראה במייל.
+    if (user.role !== "admin") {
+      await ctx.scheduler.runAfter(0, internal.emails.notify, {
+        toAdmin: true,
+        kind: "new_ticket",
+        ticketId,
+        ticketTitle: args.title.trim(),
+        actorName: user.name ?? user.email ?? "משתמש",
+      });
+    }
+
     return ticketId;
   },
 });
@@ -247,7 +265,7 @@ export const addComment = mutation({
     attachmentIds: v.optional(v.array(v.id("_storage"))),
   },
   handler: async (ctx, { ticketId, body, attachmentIds }) => {
-    const { user } = await requireTicketAccess(ctx, ticketId);
+    const { user, ticket } = await requireTicketAccess(ctx, ticketId);
     const trimmed = body.trim();
     const files = attachmentIds ?? [];
     if (!trimmed && files.length === 0) throw new Error("התגובה ריקה");
@@ -262,6 +280,34 @@ export const addComment = mutation({
       createdAt: now,
     });
     await ctx.db.patch(ticketId, { updatedAt: now });
+
+    // התראות מייל על תגובה חדשה.
+    const actorName = user.name ?? user.email ?? "משתמש";
+    const snippet = trimmed.slice(0, 200);
+    if (user.role === "admin") {
+      // המנהל הגיב → פותח הטיקט מקבל מייל (אם אינו המנהל עצמו).
+      const opener = await ctx.db.get(ticket.createdBy);
+      if (opener && opener._id !== user._id && opener.email) {
+        await ctx.scheduler.runAfter(0, internal.emails.notify, {
+          to: opener.email,
+          kind: "new_comment",
+          ticketId,
+          ticketTitle: ticket.title,
+          actorName,
+          snippet,
+        });
+      }
+    } else {
+      // לקוח הגיב → המנהל מקבל מייל.
+      await ctx.scheduler.runAfter(0, internal.emails.notify, {
+        toAdmin: true,
+        kind: "new_comment",
+        ticketId,
+        ticketTitle: ticket.title,
+        actorName,
+        snippet,
+      });
+    }
   },
 });
 
@@ -301,6 +347,19 @@ export const changeStatus = mutation({
       toStatusId: statusId,
       createdAt: now,
     });
+
+    // פותח הטיקט מקבל מייל על שינוי הסטטוס.
+    const opener = await ctx.db.get(ticket.createdBy);
+    if (opener && opener._id !== admin._id && opener.email) {
+      await ctx.scheduler.runAfter(0, internal.emails.notify, {
+        to: opener.email,
+        kind: "status",
+        ticketId,
+        ticketTitle: ticket.title,
+        actorName: admin.name ?? admin.email ?? "הצוות",
+        body: newStatus.name,
+      });
+    }
   },
 });
 
@@ -320,6 +379,21 @@ export const setEta = mutation({
       etaAt,
       createdAt: now,
     });
+
+    // פותח הטיקט מקבל מייל על עדכון הצפי.
+    const opener = await ctx.db.get(ticket.createdBy);
+    if (opener && opener._id !== admin._id && opener.email) {
+      await ctx.scheduler.runAfter(0, internal.emails.notify, {
+        to: opener.email,
+        kind: "eta",
+        ticketId,
+        ticketTitle: ticket.title,
+        actorName: admin.name ?? admin.email ?? "הצוות",
+        body: etaAt
+          ? `נקבע צפי לסיום: ${shortDate(etaAt)}`
+          : "הצפי לסיום הוסר.",
+      });
+    }
   },
 });
 
