@@ -8,6 +8,7 @@ export const statusType = v.union(
   v.literal("open"),
   v.literal("active"),
   v.literal("done"),
+  v.literal("waiting"), // ממתין לתשובת לקוח
 );
 
 export const userRole = v.union(v.literal("admin"), v.literal("client"));
@@ -106,6 +107,8 @@ const schema = defineSchema({
     tagIds: v.array(v.id("tags")),
     attachmentIds: v.array(v.id("_storage")),
     etaAt: v.optional(v.number()),
+    // סדר תצוגה ידני (קטן יותר = גבוה יותר). אם ריק — לפי createdAt.
+    position: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
     firstActiveAt: v.optional(v.number()),

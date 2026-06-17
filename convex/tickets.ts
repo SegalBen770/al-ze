@@ -62,6 +62,7 @@ function computeMetrics(
   const sorted = [...statusEvents].sort((a, b) => a.createdAt - b.createdAt);
 
   let activeMs = 0;
+  let waitingMs = 0;
   for (let i = 0; i < sorted.length; i++) {
     const ev = sorted[i];
     const toId = ev.toStatusId;
@@ -69,7 +70,9 @@ function computeMetrics(
     const type = statusMap.get(toId)?.type;
     const start = ev.createdAt;
     const end = sorted[i + 1]?.createdAt ?? closedAt ?? now;
-    if (type === "active") activeMs += Math.max(0, end - start);
+    const dur = Math.max(0, end - start);
+    if (type === "active") activeMs += dur;
+    else if (type === "waiting") waitingMs += dur;
   }
 
   const totalMs = (closedAt ?? now) - ticket.createdAt;
@@ -80,6 +83,7 @@ function computeMetrics(
     isClosed: closedAt != null,
     totalMs,
     activeMs,
+    waitingMs,
   };
 }
 
@@ -108,6 +112,10 @@ export const list = query({
         .collect();
     }
 
+    // סדר תצוגה: position ידני אם קיים, אחרת לפי createdAt (חדש למעלה).
+    const sortKey = (t: Doc<"tickets">) => t.position ?? -t.createdAt;
+    tickets.sort((a, b) => sortKey(a) - sortKey(b));
+
     const maps = await loadTaxonomyMaps(ctx);
     const customers = await ctx.db.query("customers").collect();
     const customerMap = new Map(customers.map((c) => [c._id, c.name]));
@@ -128,7 +136,12 @@ export const list = query({
 export const getWithMetrics = query({
   args: { ticketId: v.id("tickets") },
   handler: async (ctx, { ticketId }) => {
-    const { ticket } = await requireTicketAccess(ctx, ticketId);
+    const user = await requireUser(ctx);
+    const ticket = await ctx.db.get(ticketId);
+    if (!ticket) return null; // נמחק / לא קיים — נטופל בצד הלקוח
+    if (user.role !== "admin" && ticket.customerId !== user.customerId) {
+      throw new Error("אין הרשאה לטיקט זה");
+    }
     const maps = await loadTaxonomyMaps(ctx);
 
     const customer = await ctx.db.get(ticket.customerId);
@@ -446,6 +459,15 @@ export const update = mutation({
 
     patch.updatedAt = Date.now();
     await ctx.db.patch(ticketId, patch as Partial<Doc<"tickets">>);
+  },
+});
+
+/** קביעת סדר תצוגה ידני לטיקט (אדמין בלבד). */
+export const setPosition = mutation({
+  args: { ticketId: v.id("tickets"), position: v.number() },
+  handler: async (ctx, { ticketId, position }) => {
+    await requireAdmin(ctx);
+    await ctx.db.patch(ticketId, { position });
   },
 });
 

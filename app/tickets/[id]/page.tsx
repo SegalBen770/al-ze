@@ -59,6 +59,20 @@ function TicketDetailView() {
     );
   }
 
+  if (data === null) {
+    return (
+      <div className="text-center py-24 space-y-3">
+        <p className="text-muted-foreground">הטיקט לא נמצא או נמחק.</p>
+        <button
+          onClick={() => router.push("/")}
+          className="text-primary font-medium hover:underline"
+        >
+          חזרה לכל הטיקטים
+        </button>
+      </div>
+    );
+  }
+
   const { ticket, timeline, metrics } = data;
   const isAdmin = !!me?.isAdmin;
   const isDone = ticket.status?.type === "done";
@@ -183,6 +197,14 @@ function MetricsPanel({
         value={metrics.activeMs > 0 ? formatDuration(metrics.activeMs) : "טרם החל"}
         subtle
       />
+      {metrics.waitingMs > 0 && (
+        <div className="rounded-xl bg-amber-50 border border-amber-100 p-3 text-center">
+          <p className="text-xs text-amber-700">ממתין לתשובת הלקוח</p>
+          <p className="text-lg font-bold text-amber-800">
+            {formatDuration(metrics.waitingMs)}
+          </p>
+        </div>
+      )}
     </Card>
   );
 }

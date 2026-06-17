@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
@@ -44,7 +43,6 @@ export function CreateTicketDialog({ me }: { me: CurrentUser }) {
   );
   const createTicket = useMutation(api.tickets.create);
   const uploadImages = useUploadImages();
-  const router = useRouter();
 
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -75,7 +73,7 @@ export function CreateTicketDialog({ me }: { me: CurrentUser }) {
     setSubmitting(true);
     try {
       const attachmentIds = files.length ? await uploadImages(files) : [];
-      const newId = await createTicket({
+      await createTicket({
         title: title.trim(),
         description: description.trim(),
         categoryId: categoryId ? (categoryId as Id<"categories">) : undefined,
@@ -86,11 +84,11 @@ export function CreateTicketDialog({ me }: { me: CurrentUser }) {
           me.isAdmin && openedById ? (openedById as Id<"users">) : undefined,
       });
       setSuccess(true);
-      // רגע של ביטחון לפני מעבר.
+      // רגע של ביטחון, ואז סוגרים ונשארים במקום (בלי מעבר לעמוד הטיקט).
       setTimeout(() => {
         setOpen(false);
         reset();
-        router.push(`/tickets/${newId}`);
+        setSubmitting(false);
       }, 1600);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "פתיחת הטיקט נכשלה");

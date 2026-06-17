@@ -156,7 +156,11 @@ function Dashboard() {
           showCustomer={!!me?.isAdmin}
         />
       ) : (
-        <TicketList tickets={filtered} showCustomer={!!me?.isAdmin} />
+        <TicketList
+          tickets={filtered}
+          showCustomer={!!me?.isAdmin}
+          canReorder={!!me?.isAdmin}
+        />
       )}
     </div>
   );

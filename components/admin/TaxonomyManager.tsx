@@ -37,6 +37,7 @@ import type { Taxonomy } from "@/lib/types";
 const STATUS_TYPES = [
   { value: "open", label: "נפתח / ממתין" },
   { value: "active", label: "בעבודה (נספר כזמן טיפול)" },
+  { value: "waiting", label: "ממתין לתשובת לקוח" },
   { value: "done", label: "הושלם / נסגר" },
 ] as const;
 
@@ -211,7 +212,10 @@ function StatusSection({ statuses }: { statuses: Taxonomy["statuses"] }) {
             <Select
               value={s.type}
               onValueChange={(type) =>
-                update({ id: s._id, type: type as "open" | "active" | "done" })
+                update({
+                  id: s._id,
+                  type: type as "open" | "active" | "done" | "waiting",
+                })
               }
             >
               <SelectTrigger className="h-9 w-36 shrink-0">
