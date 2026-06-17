@@ -232,6 +232,10 @@ function AdminControls({
   const changeStatus = useMutation(api.tickets.changeStatus);
   const setEta = useMutation(api.tickets.setEta);
   const removeTicket = useMutation(api.tickets.remove);
+  const updateTicket = useMutation(api.tickets.update);
+  const customerUsers = useQuery(api.customers.usersForCustomer, {
+    customerId: ticket.customerId,
+  });
   const router = useRouter();
 
   const etaValue = ticket.etaAt
@@ -286,6 +290,32 @@ function AdminControls({
             }
           }}
         />
+      </div>
+
+      <div className="space-y-2">
+        <Label>נפתח ע״י</Label>
+        <Select
+          value={ticket.createdBy}
+          onValueChange={async (v) => {
+            try {
+              await updateTicket({ ticketId, openedById: v as Id<"users"> });
+              toast.success("עודכן מי שפתח את הטיקט");
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : "שגיאה");
+            }
+          }}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="אני (מנהל)" />
+          </SelectTrigger>
+          <SelectContent>
+            {customerUsers?.map((u) => (
+              <SelectItem key={u._id} value={u._id}>
+                {u.displayName}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="pt-3 border-t border-border/60">

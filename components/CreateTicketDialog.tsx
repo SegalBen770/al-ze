@@ -35,6 +35,13 @@ import type { CurrentUser } from "@/lib/types";
 export function CreateTicketDialog({ me }: { me: CurrentUser }) {
   const taxonomy = useQuery(api.taxonomy.list);
   const customers = useQuery(api.customers.list, me.isAdmin ? {} : "skip");
+  const [customerId, setCustomerId] = useState<string>("");
+  const customerUsers = useQuery(
+    api.customers.usersForCustomer,
+    me.isAdmin && customerId
+      ? { customerId: customerId as Id<"customers"> }
+      : "skip",
+  );
   const createTicket = useMutation(api.tickets.create);
   const uploadImages = useUploadImages();
   const router = useRouter();
@@ -47,7 +54,7 @@ export function CreateTicketDialog({ me }: { me: CurrentUser }) {
   const [description, setDescription] = useState("");
   const [categoryId, setCategoryId] = useState<string>("");
   const [priorityId, setPriorityId] = useState<string>("");
-  const [customerId, setCustomerId] = useState<string>("");
+  const [openedById, setOpenedById] = useState<string>("");
   const [files, setFiles] = useState<File[]>([]);
 
   function reset() {
@@ -56,6 +63,7 @@ export function CreateTicketDialog({ me }: { me: CurrentUser }) {
     setCategoryId("");
     setPriorityId("");
     setCustomerId("");
+    setOpenedById("");
     setFiles([]);
     setSuccess(false);
   }
@@ -74,6 +82,8 @@ export function CreateTicketDialog({ me }: { me: CurrentUser }) {
         priorityId: priorityId ? (priorityId as Id<"priorities">) : undefined,
         attachmentIds,
         customerId: me.isAdmin ? (customerId as Id<"customers">) : undefined,
+        openedById:
+          me.isAdmin && openedById ? (openedById as Id<"users">) : undefined,
       });
       setSuccess(true);
       // רגע של ביטחון לפני מעבר.
@@ -122,20 +132,47 @@ export function CreateTicketDialog({ me }: { me: CurrentUser }) {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               {me.isAdmin && (
-                <div className="space-y-2">
-                  <Label>לקוח</Label>
-                  <Select value={customerId} onValueChange={setCustomerId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="בחר לקוח" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {customers?.map((c) => (
-                        <SelectItem key={c._id} value={c._id}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>לקוח</Label>
+                    <Select
+                      value={customerId}
+                      onValueChange={(v) => {
+                        setCustomerId(v);
+                        setOpenedById("");
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="בחר לקוח" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {customers?.map((c) => (
+                          <SelectItem key={c._id} value={c._id}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>נפתח ע״י</Label>
+                    <Select
+                      value={openedById}
+                      onValueChange={setOpenedById}
+                      disabled={!customerId}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="אני (מנהל)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {customerUsers?.map((u) => (
+                          <SelectItem key={u._id} value={u._id}>
+                            {u.displayName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               )}
 

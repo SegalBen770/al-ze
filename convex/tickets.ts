@@ -201,6 +201,8 @@ export const create = mutation({
     attachmentIds: v.optional(v.array(v.id("_storage"))),
     // נדרש רק כשהאדמין פותח טיקט עבור לקוח.
     customerId: v.optional(v.id("customers")),
+    // אדמין יכול לסמן מי מהלקוח "פתח" את הטיקט.
+    openedById: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
@@ -213,6 +215,16 @@ export const create = mutation({
       customerId = user.customerId!;
     }
 
+    // מי נחשב כפותח הטיקט.
+    let creatorId = user._id;
+    if (user.role === "admin" && args.openedById) {
+      const opener = await ctx.db.get(args.openedById);
+      if (!opener || opener.customerId !== customerId) {
+        throw new Error("המשתמש שנבחר אינו שייך ללקוח");
+      }
+      creatorId = opener._id;
+    }
+
     const status = await pickInitialStatus(ctx);
     const now = Date.now();
     const attachmentIds = args.attachmentIds ?? [];
@@ -221,7 +233,7 @@ export const create = mutation({
       title: args.title.trim(),
       description: args.description.trim(),
       customerId,
-      createdBy: user._id,
+      createdBy: creatorId,
       categoryId: args.categoryId,
       priorityId: args.priorityId,
       statusId: status._id,
@@ -236,7 +248,7 @@ export const create = mutation({
     // אירוע פתיחה — נושא את הסטטוס ההתחלתי לצורך חישוב זמנים.
     await ctx.db.insert("ticketEvents", {
       ticketId,
-      authorId: user._id,
+      authorId: creatorId,
       kind: "created",
       body: args.description.trim(),
       attachmentIds,
@@ -406,12 +418,32 @@ export const update = mutation({
     categoryId: v.optional(v.id("categories")),
     priorityId: v.optional(v.id("priorities")),
     tagIds: v.optional(v.array(v.id("tags"))),
+    // שינוי מי "פתח" את הטיקט.
+    openedById: v.optional(v.id("users")),
   },
-  handler: async (ctx, { ticketId, ...rest }) => {
+  handler: async (ctx, { ticketId, openedById, ...rest }) => {
     await requireAdmin(ctx);
     const patch: Record<string, unknown> = Object.fromEntries(
       Object.entries(rest).filter(([, val]) => val !== undefined),
     );
+
+    if (openedById) {
+      const ticket = await ctx.db.get(ticketId);
+      if (!ticket) throw new Error("הטיקט לא נמצא");
+      const opener = await ctx.db.get(openedById);
+      if (!opener || opener.customerId !== ticket.customerId) {
+        throw new Error("המשתמש אינו שייך ללקוח של הטיקט");
+      }
+      patch.createdBy = openedById;
+      // עדכון מחבר אירוע הפתיחה כדי שהטיים-ליין יציג את הפותח הנכון.
+      const createdEvent = await ctx.db
+        .query("ticketEvents")
+        .withIndex("by_ticket", (q) => q.eq("ticketId", ticketId))
+        .filter((q) => q.eq(q.field("kind"), "created"))
+        .first();
+      if (createdEvent) await ctx.db.patch(createdEvent._id, { authorId: openedById });
+    }
+
     patch.updatedAt = Date.now();
     await ctx.db.patch(ticketId, patch as Partial<Doc<"tickets">>);
   },
