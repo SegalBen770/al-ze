@@ -1,5 +1,6 @@
-import { query } from "./_generated/server";
-import { getCurrentUser, userDisplayName } from "./lib/authz";
+import { v } from "convex/values";
+import { mutation, query } from "./_generated/server";
+import { getCurrentUser, requireUser, userDisplayName } from "./lib/authz";
 
 /** המשתמש המחובר + מצב גישה. מחזיר null אם לא מחובר. */
 export const current = query({
@@ -24,5 +25,24 @@ export const current = query({
       customerId: user.customerId ?? null,
       customerName: customer?.name ?? null,
     };
+  },
+});
+
+/** עדכון הפרטים האישיים של המשתמש המחובר. */
+export const updateProfile = mutation({
+  args: {
+    firstName: v.optional(v.string()),
+    lastName: v.optional(v.string()),
+  },
+  handler: async (ctx, { firstName, lastName }) => {
+    const user = await requireUser(ctx);
+    const fn = firstName?.trim() || undefined;
+    const ln = lastName?.trim() || undefined;
+    const fullName = [fn, ln].filter(Boolean).join(" ") || undefined;
+    await ctx.db.patch(user._id, {
+      firstName: fn,
+      lastName: ln,
+      ...(fullName ? { name: fullName } : {}),
+    });
   },
 });
