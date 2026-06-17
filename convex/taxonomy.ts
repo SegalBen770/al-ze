@@ -97,6 +97,17 @@ export const deleteStatus = mutation({
   },
 });
 
+/** שינוי סדר הסטטוסים לפי סדר המזהים שהתקבל. */
+export const reorderStatuses = mutation({
+  args: { ids: v.array(v.id("statuses")) },
+  handler: async (ctx, { ids }) => {
+    await requireAdmin(ctx);
+    for (let i = 0; i < ids.length; i++) {
+      await ctx.db.patch(ids[i], { order: i });
+    }
+  },
+});
+
 /* ----------------------------- סיווגים ----------------------------- */
 
 export const createCategory = mutation({
@@ -130,6 +141,16 @@ export const deleteCategory = mutation({
   },
 });
 
+export const reorderCategories = mutation({
+  args: { ids: v.array(v.id("categories")) },
+  handler: async (ctx, { ids }) => {
+    await requireAdmin(ctx);
+    for (let i = 0; i < ids.length; i++) {
+      await ctx.db.patch(ids[i], { order: i });
+    }
+  },
+});
+
 /* ----------------------------- דחיפויות ----------------------------- */
 
 export const createPriority = mutation({
@@ -159,6 +180,16 @@ export const deletePriority = mutation({
   handler: async (ctx, { id }) => {
     await requireAdmin(ctx);
     await ctx.db.delete(id);
+  },
+});
+
+export const reorderPriorities = mutation({
+  args: { ids: v.array(v.id("priorities")) },
+  handler: async (ctx, { ids }) => {
+    await requireAdmin(ctx);
+    for (let i = 0; i < ids.length; i++) {
+      await ctx.db.patch(ids[i], { level: i + 1 });
+    }
   },
 });
 

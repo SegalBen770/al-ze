@@ -1,9 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { Plus, Trash2, GripVertical } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { Card } from "@/components/ui/card";
@@ -51,7 +66,7 @@ function Section({
 }: {
   title: string;
   description: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <Card className="p-5 space-y-4">
@@ -87,58 +102,141 @@ function ColorDot({
   );
 }
 
+/* ----------------------- רשימה הניתנת לגרירה ----------------------- */
+
+function SortableList<T extends { _id: string }>({
+  items,
+  onReorder,
+  children,
+}: {
+  items: T[];
+  onReorder: (ids: string[]) => void;
+  children: (item: T) => ReactNode;
+}) {
+  const [order, setOrder] = useState(items);
+  const idsKey = items.map((i) => i._id).join(",");
+  // סנכרון כשהנתונים מהשרת משתנים.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setOrder(items), [idsKey]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
+
+  function onDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const oldIndex = order.findIndex((i) => i._id === active.id);
+    const newIndex = order.findIndex((i) => i._id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const next = arrayMove(order, oldIndex, newIndex);
+    setOrder(next);
+    onReorder(next.map((i) => i._id));
+  }
+
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragEnd={onDragEnd}
+    >
+      <SortableContext
+        items={order.map((i) => i._id)}
+        strategy={verticalListSortingStrategy}
+      >
+        <div className="space-y-2">
+          {order.map((item) => (
+            <SortableRow key={item._id} id={item._id}>
+              {children(item)}
+            </SortableRow>
+          ))}
+        </div>
+      </SortableContext>
+    </DndContext>
+  );
+}
+
+function SortableRow({ id, children }: { id: string; children: ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+  return (
+    <div ref={setNodeRef} style={style} className="flex items-center gap-2">
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        className="shrink-0 cursor-grab touch-none text-muted-foreground/40 hover:text-muted-foreground"
+        title="גרירה לשינוי סדר"
+      >
+        <GripVertical className="size-4" />
+      </button>
+      <div className="flex flex-1 items-center gap-2">{children}</div>
+    </div>
+  );
+}
+
 /* -------------------------------- סטטוסים -------------------------------- */
 
 function StatusSection({ statuses }: { statuses: Taxonomy["statuses"] }) {
   const update = useMutation(api.taxonomy.updateStatus);
   const create = useMutation(api.taxonomy.createStatus);
   const remove = useMutation(api.taxonomy.deleteStatus);
+  const reorder = useMutation(api.taxonomy.reorderStatuses);
   const [name, setName] = useState("");
 
   return (
     <Section
       title="סטטוסים"
-      description="עמודות הלוח ושלבי הטיפול. הסוג קובע איך נמדד הזמן."
+      description="עמודות הלוח ושלבי הטיפול. גררו לשינוי הסדר; הסוג קובע איך נמדד הזמן."
     >
-      {statuses.map((s) => (
-        <div key={s._id} className="flex items-center gap-2">
-          <GripVertical className="size-4 text-muted-foreground/40 shrink-0" />
-          <ColorDot color={s.color} onChange={(color) => update({ id: s._id, color })} />
-          <Input
-            defaultValue={s.name}
-            onBlur={(e) =>
-              e.target.value !== s.name && update({ id: s._id, name: e.target.value })
-            }
-            className="h-9 flex-1"
-          />
-          <Select
-            value={s.type}
-            onValueChange={(type) =>
-              update({ id: s._id, type: type as "open" | "active" | "done" })
-            }
-          >
-            <SelectTrigger className="h-9 w-36 shrink-0">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {STATUS_TYPES.map((t) => (
-                <SelectItem key={t.value} value={t.value}>
-                  {t.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <DeleteBtn
-            onClick={async () => {
-              try {
-                await remove({ id: s._id });
-              } catch (err) {
-                toast.error(err instanceof Error ? err.message : "מחיקה נכשלה");
+      <SortableList
+        items={statuses}
+        onReorder={(ids) => reorder({ ids: ids as Id<"statuses">[] })}
+      >
+        {(s) => (
+          <>
+            <ColorDot color={s.color} onChange={(color) => update({ id: s._id, color })} />
+            <Input
+              defaultValue={s.name}
+              onBlur={(e) =>
+                e.target.value !== s.name && update({ id: s._id, name: e.target.value })
               }
-            }}
-          />
-        </div>
-      ))}
+              className="h-9 flex-1"
+            />
+            <Select
+              value={s.type}
+              onValueChange={(type) =>
+                update({ id: s._id, type: type as "open" | "active" | "done" })
+              }
+            >
+              <SelectTrigger className="h-9 w-36 shrink-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {STATUS_TYPES.map((t) => (
+                  <SelectItem key={t.value} value={t.value}>
+                    {t.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <DeleteBtn
+              onClick={async () => {
+                try {
+                  await remove({ id: s._id });
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : "מחיקה נכשלה");
+                }
+              }}
+            />
+          </>
+        )}
+      </SortableList>
       <AddRow
         value={name}
         onChange={setName}
@@ -159,20 +257,25 @@ function CategorySection({ categories }: { categories: Taxonomy["categories"] })
   const update = useMutation(api.taxonomy.updateCategory);
   const create = useMutation(api.taxonomy.createCategory);
   const remove = useMutation(api.taxonomy.deleteCategory);
+  const reorder = useMutation(api.taxonomy.reorderCategories);
   const [name, setName] = useState("");
 
   return (
-    <Section title="סיווגים" description="סוג הפנייה — שאלה, פיתוח, באג ועוד.">
-      {categories.map((c) => (
-        <SimpleRow
-          key={c._id}
-          color={c.color}
-          name={c.name}
-          onColor={(color) => update({ id: c._id, color })}
-          onName={(name) => update({ id: c._id, name })}
-          onDelete={() => remove({ id: c._id })}
-        />
-      ))}
+    <Section title="סיווגים" description="סוג הפנייה — שאלה, פיתוח, באג ועוד. גררו לשינוי הסדר.">
+      <SortableList
+        items={categories}
+        onReorder={(ids) => reorder({ ids: ids as Id<"categories">[] })}
+      >
+        {(c) => (
+          <RowControls
+            color={c.color}
+            name={c.name}
+            onColor={(color) => update({ id: c._id, color })}
+            onName={(name) => update({ id: c._id, name })}
+            onDelete={() => remove({ id: c._id })}
+          />
+        )}
+      </SortableList>
       <AddRow
         value={name}
         onChange={setName}
@@ -193,20 +296,25 @@ function PrioritySection({ priorities }: { priorities: Taxonomy["priorities"] })
   const update = useMutation(api.taxonomy.updatePriority);
   const create = useMutation(api.taxonomy.createPriority);
   const remove = useMutation(api.taxonomy.deletePriority);
+  const reorder = useMutation(api.taxonomy.reorderPriorities);
   const [name, setName] = useState("");
 
   return (
-    <Section title="רמות דחיפות" description="נמוכה, רגילה, גבוהה, דחוף...">
-      {priorities.map((p) => (
-        <SimpleRow
-          key={p._id}
-          color={p.color}
-          name={p.name}
-          onColor={(color) => update({ id: p._id, color })}
-          onName={(name) => update({ id: p._id, name })}
-          onDelete={() => remove({ id: p._id })}
-        />
-      ))}
+    <Section title="רמות דחיפות" description="גררו לשינוי הסדר (נמוך → גבוה).">
+      <SortableList
+        items={priorities}
+        onReorder={(ids) => reorder({ ids: ids as Id<"priorities">[] })}
+      >
+        {(p) => (
+          <RowControls
+            color={p.color}
+            name={p.name}
+            onColor={(color) => update({ id: p._id, color })}
+            onName={(name) => update({ id: p._id, name })}
+            onDelete={() => remove({ id: p._id })}
+          />
+        )}
+      </SortableList>
       <AddRow
         value={name}
         onChange={setName}
@@ -236,14 +344,15 @@ function TagSection({ tags }: { tags: Taxonomy["tags"] }) {
         <p className="text-xs text-muted-foreground">אין עדיין תגיות.</p>
       )}
       {tags.map((t) => (
-        <SimpleRow
-          key={t._id}
-          color={t.color}
-          name={t.name}
-          onColor={(color) => update({ id: t._id, color })}
-          onName={(name) => update({ id: t._id, name })}
-          onDelete={() => remove({ id: t._id })}
-        />
+        <div key={t._id} className="flex items-center gap-2">
+          <RowControls
+            color={t.color}
+            name={t.name}
+            onColor={(color) => update({ id: t._id, color })}
+            onName={(name) => update({ id: t._id, name })}
+            onDelete={() => remove({ id: t._id })}
+          />
+        </div>
       ))}
       <AddRow
         value={name}
@@ -261,7 +370,7 @@ function TagSection({ tags }: { tags: Taxonomy["tags"] }) {
 
 /* ------------------------------- רכיבי עזר ------------------------------- */
 
-function SimpleRow({
+function RowControls({
   color,
   name,
   onColor,
@@ -275,7 +384,7 @@ function SimpleRow({
   onDelete: () => Promise<unknown> | void;
 }) {
   return (
-    <div className="flex items-center gap-2">
+    <>
       <ColorDot color={color} onChange={onColor} />
       <Input
         defaultValue={name}
@@ -291,7 +400,7 @@ function SimpleRow({
           }
         }}
       />
-    </div>
+    </>
   );
 }
 
