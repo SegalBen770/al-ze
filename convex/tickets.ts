@@ -373,19 +373,7 @@ export const changeStatus = mutation({
       toStatusId: statusId,
       createdAt: now,
     });
-
-    // פותח הטיקט מקבל מייל על שינוי הסטטוס.
-    const opener = await ctx.db.get(ticket.createdBy);
-    if (opener && opener._id !== admin._id && opener.email) {
-      await ctx.scheduler.runAfter(0, internal.emails.notify, {
-        to: opener.email,
-        kind: "status",
-        ticketId,
-        ticketTitle: ticket.title,
-        actorName: userDisplayName(admin),
-        body: newStatus.name,
-      });
-    }
+    // שינוי סטטוס אינו שולח מייל ללקוח (לפי בקשה).
   },
 });
 
