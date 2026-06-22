@@ -9,7 +9,6 @@ import {
   CheckCircle2,
   Clock,
   CalendarClock,
-  Hourglass,
   Send,
   Sparkles,
   Trash2,
@@ -186,17 +185,11 @@ function MetricsPanel({
         </>
       ) : (
         <MetricRow
-          icon={<Hourglass className="size-4" />}
-          label="בטיפול כבר"
+          icon={<Clock className="size-4" />}
+          label="נפתח לפני"
           value={formatDuration(metrics.totalMs)}
         />
       )}
-      <MetricRow
-        icon={<Hourglass className="size-4" />}
-        label="זמן עבודה בפועל"
-        value={metrics.activeMs > 0 ? formatDuration(metrics.activeMs) : "טרם החל"}
-        subtle
-      />
       {metrics.waitingMs > 0 && (
         <div className="rounded-xl bg-amber-50 border border-amber-100 p-3 text-center">
           <p className="text-xs text-amber-700">ממתין לתשובת הלקוח</p>
